@@ -1,5 +1,6 @@
 import streamlit as st
 import numpy as np
+import pandas as pd
 
 from physics.building import create_building
 from physics.earthquake import generate_ground_motion
@@ -214,10 +215,9 @@ hr {
 </style>
 """, unsafe_allow_html=True)
 
-
 # =========================================================
 # HELPER FUNCTIONS
-# ========================================================
+# =========================================================
 
 def render_header(section, description):
     st.markdown(
@@ -276,7 +276,6 @@ def render_no_results():
 
 def render_kpis(results):
     u = results["u"]
-    v = results["v"]
     a = results["a"]
 
     c1, c2, c3, c4 = st.columns(4)
@@ -553,6 +552,11 @@ elif page == "Simulation":
         use_container_width=True
     ):
 
+        # Invalidate the previous run before starting a new one.
+        # If the new analysis fails, stale results cannot be mistaken
+        # for the output of the latest requested simulation.
+        st.session_state.pop("results", None)
+
         try:
 
             with st.spinner("Running structural dynamic analysis..."):
@@ -575,6 +579,17 @@ elif page == "Simulation":
                     ag
                 )
 
+                # Calculate engineering metrics once per successful run.
+                # Dashboard and reports use the same result snapshot.
+                metrics = calculate_engineering_metrics(
+                    M=M,
+                    K=K,
+                    u=u,
+                    a=a,
+                    ag=ag,
+                    story_height=3.2
+                )
+
                 st.session_state["results"] = {
                     "t": t,
                     "ag": ag,
@@ -582,7 +597,11 @@ elif page == "Simulation":
                     "v": v,
                     "a": a,
                     "M": M,
+                    "C": C,
                     "K": K,
+                    "metrics": metrics,
+                    "story_height": 3.2,
+                    "dt": float(t[1] - t[0]),
                     "n_floors": n_floors,
                     "pga_g": pga_g,
                     "duration": duration,
@@ -594,6 +613,9 @@ elif page == "Simulation":
             st.rerun()
 
         except Exception as error:
+
+            # Ensure a failed run never leaves a partial or stale result.
+            st.session_state.pop("results", None)
 
             st.error(
                 f"Simulation failed: {error}"
@@ -720,15 +742,22 @@ elif page == "Engineering Report":
 
         st.divider()
 
-        # Engineering metrics
-        metrics = calculate_engineering_metrics(
-            M=results["M"],
-            K=results["K"],
-            u=results["u"],
-            a=results["a"],
-            ag=results["ag"],
-            story_height=3.2
-        )
+        # Use the metrics calculated and stored with this simulation run.
+        # This keeps dashboard and report values synchronized.
+        metrics = results.get("metrics")
+
+        if metrics is None:
+            # Backward compatibility for older session-state data.
+            metrics = calculate_engineering_metrics(
+                M=results["M"],
+                K=results["K"],
+                u=results["u"],
+                a=results["a"],
+                ag=results["ag"],
+                story_height=results.get("story_height", 3.2)
+            )
+
+            results["metrics"] = metrics
 
         st.subheader("Engineering Performance Indicators")
 
@@ -752,8 +781,6 @@ elif page == "Engineering Report":
         st.divider()
 
         st.subheader("Story Drift Analysis")
-
-        import pandas as pd
 
         drift_df = pd.DataFrame({
             "Floor": [
@@ -833,14 +860,14 @@ elif page == "Engineering Report":
                 key="report_max_displacement"
             )
 
-        with tab2:
+            with tab2:
 
-            fig = plot_story_response(
-                results["t"],
-                results["v"],
-                "Floor Velocity Response",
-                "Velocity (m/s)"
-            )
+                    fig = plot_story_response(
+                    results["t"],
+                    results["v"],
+                    "Floor Velocity Response",
+                    "Velocity (m/s)"
+                )
 
             st.plotly_chart(
                 style_figure(fig, 450),
@@ -878,7 +905,10 @@ elif page == "Engineering Report":
             key="report_ground_motion"
         )
 
-        # Summary data
+        # -------------------------------------------------
+        # ANALYSIS SUMMARY
+        # -------------------------------------------------
+
         st.subheader("Analysis Summary")
 
         summary_data = {
@@ -902,8 +932,6 @@ elif page == "Engineering Report":
             ]
         }
 
-        import pandas as pd
-
         summary_df = pd.DataFrame(summary_data)
 
         st.dataframe(
@@ -911,6 +939,10 @@ elif page == "Engineering Report":
             use_container_width=True,
             hide_index=True
         )
+
+        # -------------------------------------------------
+        # CSV 1: ANALYSIS SUMMARY
+        # -------------------------------------------------
 
         csv_data = summary_df.to_csv(
             index=False
@@ -924,11 +956,75 @@ elif page == "Engineering Report":
             use_container_width=True
         )
 
-        # PDF Engineering Report
+        # -------------------------------------------------
+        # CSV 2: FLOOR ENGINEERING METRICS
+        # -------------------------------------------------
+
+        engineering_csv = drift_df.copy()
+
+        engineering_csv["First Mode Shape"] = (
+            metrics["first_mode_shape"]
+        )
+
+        engineering_csv_data = engineering_csv.to_csv(
+            index=False
+        ).encode("utf-8-sig")
+
+        st.download_button(
+            label="⬇️ Download Floor Engineering Metrics (CSV)",
+            data=engineering_csv_data,
+            file_name="earthquake_floor_engineering_metrics.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+        # -------------------------------------------------
+        # CSV 3: COMPLETE TIME-HISTORY RESPONSE
+        # -------------------------------------------------
+
+        response_data = {
+            "Time (s)": results["t"],
+            "Ground Acceleration (m/s²)": results["ag"]
+        }
+
+        for floor_index in range(results["n_floors"]):
+
+            floor_number = floor_index + 1
+
+            response_data[
+                f"Floor {floor_number} Displacement (m)"
+            ] = results["u"][:, floor_index]
+
+            response_data[
+                f"Floor {floor_number} Velocity (m/s)"
+            ] = results["v"][:, floor_index]
+
+            response_data[
+                f"Floor {floor_number} Relative Acceleration (m/s²)"
+            ] = results["a"][:, floor_index]
+
+        response_df = pd.DataFrame(response_data)
+
+        response_csv_data = response_df.to_csv(
+            index=False
+        ).encode("utf-8-sig")
+
+        st.download_button(
+            label="⬇️ Download Full Response History (CSV)",
+            data=response_csv_data,
+            file_name="earthquake_full_response_history.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+        # -------------------------------------------------
+        # PDF ENGINEERING REPORT
+        # -------------------------------------------------
+
         pdf_data = generate_pdf_report(
             results=results,
             metrics=metrics,
-            story_height=3.2
+            story_height=results.get("story_height", 3.2)
         )
 
         st.download_button(
@@ -944,3 +1040,4 @@ elif page == "Engineering Report":
             "using synthetic earthquake excitation. "
             "It is not a certified structural safety assessment."
         )
+
