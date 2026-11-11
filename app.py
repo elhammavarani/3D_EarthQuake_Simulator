@@ -13,6 +13,8 @@ from visualization.plots import (
 
 from visualization.building_3d import create_building_3d
 
+from physics.engineering_metrics import calculate_engineering_metrics
+
 
 # =========================================================
 # PAGE CONFIGURATION
@@ -577,6 +579,8 @@ elif page == "Simulation":
                     "u": u,
                     "v": v,
                     "a": a,
+                    "M": M,
+                    "K": K,
                     "n_floors": n_floors,
                     "pga_g": pga_g,
                     "duration": duration,
@@ -713,6 +717,84 @@ elif page == "Engineering Report":
         render_kpis(results)
 
         st.divider()
+
+        # Engineering metrics
+        metrics = calculate_engineering_metrics(
+            M=results["M"],
+            K=results["K"],
+            u=results["u"],
+            a=results["a"],
+            ag=results["ag"],
+            story_height=3.2
+        )
+
+        st.subheader("Engineering Performance Indicators")
+
+        c1, c2, c3 = st.columns(3)
+
+        c1.metric(
+            "Maximum Base Shear",
+            f'{metrics["max_base_shear"] / 1000:.2f} kN'
+        )
+
+        c2.metric(
+            "First Natural Frequency",
+            f'{metrics["first_natural_frequency_hz"]:.3f} Hz'
+        )
+
+        c3.metric(
+            "Maximum Drift Ratio",
+            f'{np.max(metrics["max_drift_ratio"]) * 100:.3f} %'
+        )
+
+        st.divider()
+
+        st.subheader("Story Drift Analysis")
+
+        import pandas as pd
+
+        drift_df = pd.DataFrame({
+            "Floor": [
+                f"Floor {i}"
+                for i in range(1, results["n_floors"] + 1)
+            ],
+            "Maximum Displacement (m)": (
+                metrics["max_floor_displacement"]
+            ),
+            "Maximum Story Drift (m)": (
+                metrics["max_story_drift"]
+            ),
+            "Drift Ratio (%)": (
+                metrics["max_drift_ratio"] * 100
+            )
+        })
+
+        st.dataframe(
+            drift_df.style.format({
+                "Maximum Displacement (m)": "{:.5f}",
+                "Maximum Story Drift (m)": "{:.5f}",
+                "Drift Ratio (%)": "{:.4f}"
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.subheader("First Mode Shape")
+
+        mode_df = pd.DataFrame({
+            "Floor": [
+                f"Floor {i}"
+                for i in range(1, results["n_floors"] + 1)
+            ],
+            "Normalized Mode Shape": (
+                metrics["first_mode_shape"]
+            )
+        })
+
+        st.bar_chart(
+            mode_df.set_index("Floor"),
+            y="Normalized Mode Shape"
+        )
 
         st.subheader("Response Analysis")
 
