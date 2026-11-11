@@ -15,6 +15,8 @@ from visualization.building_3d import create_building_3d
 
 from physics.engineering_metrics import calculate_engineering_metrics
 
+from reports.pdf_report import generate_pdf_report
+
 
 # =========================================================
 # PAGE CONFIGURATION
@@ -919,6 +921,21 @@ elif page == "Engineering Report":
             data=csv_data,
             file_name="earthquake_analysis_summary.csv",
             mime="text/csv",
+            use_container_width=True
+        )
+
+        # PDF Engineering Report
+        pdf_data = generate_pdf_report(
+            results=results,
+            metrics=metrics,
+            story_height=3.2
+        )
+
+        st.download_button(
+            label="⬇️ Download Engineering Report (PDF)",
+            data=pdf_data,
+            file_name="Seismic_Engineering_Report.pdf",
+            mime="application/pdf",
             use_container_width=True
         )
 
