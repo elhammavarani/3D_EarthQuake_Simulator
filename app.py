@@ -20,6 +20,8 @@ from reports.pdf_report import generate_pdf_report
 
 from ml.compare import compare_models
 
+from ml.feature_importance import get_feature_importance
+
 
 # =========================================================
 # PAGE CONFIGURATION
@@ -1290,5 +1292,31 @@ elif page == "AI Prediction":
             "ML predictions are estimates based on synthetic training "
             "scenarios. Physics solver results are numerical reference "
             "results for the same input scenario."
+        )
+
+        st.divider()
+
+        st.subheader("07 / Feature Importance")
+
+        importance_df = get_feature_importance()
+
+        importance_df["Importance (%)"] = (
+            importance_df["Importance"] * 100
+        )
+
+        st.bar_chart(
+            importance_df.set_index("Feature")["Importance (%)"],
+            use_container_width=True
+        )
+
+        st.dataframe(
+            importance_df[["Feature", "Importance (%)"]].round(2),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.caption(
+            "Feature importance represents the relative contribution "
+            "of each input feature to the Extra Trees model."
         )
 
