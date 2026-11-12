@@ -189,6 +189,30 @@ def train_models(dataset_path=DATASET_PATH):
 
     best_model = trained_models[best_model_name]
 
+    # Generate predictions on the test dataset.
+    y_pred = best_model.predict(X_test)
+
+    # Save actual, predicted, and residual values.
+    prediction_data = pd.DataFrame()
+
+    for index, target in enumerate(TARGET_COLUMNS):
+        prediction_data[f"{target}_actual"] = (
+            y_test[target].to_numpy()
+        )
+
+        prediction_data[f"{target}_predicted"] = (
+            y_pred[:, index]
+        )
+
+        prediction_data[f"{target}_residual"] = (
+            y_test[target].to_numpy() - y_pred[:, index]
+        )
+
+    prediction_path = ARTIFACT_DIR / "test_predictions.csv"
+    prediction_data.to_csv(prediction_path, index=False)
+
+    print(f"Saved test predictions: {prediction_path}")
+
     # Save the selected model and its metadata.
     model_path = ARTIFACT_DIR / "best_model.joblib"
     evaluation_path = ARTIFACT_DIR / "evaluation.json"

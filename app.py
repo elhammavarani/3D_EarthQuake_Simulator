@@ -1298,7 +1298,24 @@ elif page == "AI Prediction":
 
         st.divider()
 
-        st.subheader("07 / Feature Importance")
+        st.subheader("07 / Actual vs Predicted")
+        predictions_df = pd.read_csv("ml/artifacts/test_predictions.csv")
+        targets = [("Max Displacement", "target_max_displacement"), ("Max Drift Ratio", "target_max_drift_ratio"), ("Max Base Shear", "target_max_base_shear")]
+        cols = st.columns(3)
+        for col, (label, key) in zip(cols, targets):
+            with col:
+                st.markdown(f"{label}")
+                st.scatter_chart(predictions_df, x=key + "_actual", y=key + "_predicted", use_container_width=True)
+        st.divider()
+        st.subheader("08 / Residual Analysis")
+        cols = st.columns(3)
+        for col, (label, key) in zip(cols, targets):
+            with col:
+                st.markdown(f"{label} Residuals")
+                st.scatter_chart(predictions_df, x=key + "_predicted", y=key + "_residual", use_container_width=True)
+        st.caption("Residual = Actual - Predicted. Values closer to zero indicate smaller prediction errors.")
+        st.divider()
+        st.subheader("09 / Feature Importance")
 
         importance_df = get_feature_importance()
 
@@ -1324,7 +1341,7 @@ elif page == "AI Prediction":
 
         st.divider()
 
-        st.subheader("08 / Model Evaluation")
+        st.subheader("10 / Model Evaluation")
 
         st.markdown("### Model Performance Comparison")
 
