@@ -18,6 +18,8 @@ from physics.engineering_metrics import calculate_engineering_metrics
 
 from reports.pdf_report import generate_pdf_report
 
+from ml.compare import compare_models
+
 
 # =========================================================
 # PAGE CONFIGURATION
@@ -346,7 +348,8 @@ with st.sidebar:
             "Overview",
             "Simulation",
             "3D Visualization",
-            "Engineering Report"
+            "Engineering Report",
+            "AI Prediction"
         ],
         label_visibility="collapsed"
     )
@@ -1039,5 +1042,253 @@ elif page == "Engineering Report":
             "This is a linear structural response simulation "
             "using synthetic earthquake excitation. "
             "It is not a certified structural safety assessment."
+        )
+
+        # =========================================================
+# PAGE 5: AI PREDICTION
+# =========================================================
+
+elif page == "AI Prediction":
+
+    render_header(
+        "AI Prediction",
+        "Machine-learning-based earthquake response prediction "
+        "and comparison with physics simulation."
+    )
+
+    st.subheader("01 / Building Configuration")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        n_floors = st.slider(
+            "Number of floors",
+            3, 20, 10,
+            key="ai_floors"
+        )
+
+        mass = st.number_input(
+            "Floor mass (kg)",
+            min_value=100000,
+            max_value=500000,
+            value=250000,
+            step=10000,
+            key="ai_mass"
+        )
+
+        story_height = st.number_input(
+            "Story height (m)",
+            min_value=2.5,
+            max_value=5.0,
+            value=3.2,
+            step=0.1,
+            key="ai_story_height"
+        )
+
+    with col2:
+        stiffness = st.number_input(
+            "Story stiffness (N/m)",
+            min_value=10_000_000,
+            max_value=500_000_000,
+            value=150_000_000,
+            step=10_000_000,
+            key="ai_stiffness"
+        )
+
+        damping_ratio = st.slider(
+            "Damping ratio",
+            0.01, 0.15, 0.05,
+            step=0.01,
+            key="ai_damping"
+        )
+
+    st.divider()
+
+    st.subheader("02 / Earthquake Parameters")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        pga_g = st.slider(
+            "Peak Ground Acceleration (g)",
+            0.05, 1.0, 0.3,
+            step=0.05,
+            key="ai_pga"
+        )
+
+        duration = st.slider(
+            "Earthquake duration (seconds)",
+            10, 60, 15,
+            key="ai_duration"
+        )
+
+    with col2:
+        dt = st.select_slider(
+            "Time step (seconds)",
+            options=[0.01, 0.02, 0.05],
+            value=0.02,
+            key="ai_dt"
+        )
+
+        seed = st.number_input(
+            "Earthquake seed",
+            min_value=1,
+            max_value=999999,
+            value=42,
+            key="ai_seed"
+        )
+
+    st.divider()
+
+    st.subheader("03 / Run AI Analysis")
+
+    st.markdown(
+        """
+        <div class="control-panel">
+            <div class="eyebrow">HYBRID ANALYSIS ENGINE</div>
+            <p style="color:#A8B7C9;">
+                Predict structural response using the trained
+                Extra Trees model and compare the results against
+                the Newmark-beta physics solver.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    if st.button(
+        "RUN AI PREDICTION",
+        type="primary",
+        use_container_width=True,
+        key="run_ai_prediction"
+    ):
+
+        try:
+            with st.spinner(
+                "Running ML prediction and physics simulation..."
+            ):
+
+                comparison = compare_models(
+                    n_floors=n_floors,
+                    mass=mass,
+                    stiffness=stiffness,
+                    damping_ratio=damping_ratio,
+                    story_height=story_height,
+                    pga_g=pga_g,
+                    duration=float(duration),
+                    dt=float(dt),
+                    seed=int(seed)
+                )
+
+                st.session_state["ai_results"] = comparison
+
+            st.success("AI analysis completed successfully.")
+
+        except Exception as error:
+            st.session_state.pop("ai_results", None)
+            st.error(f"AI analysis failed: {error}")
+
+    # Display results
+    ai_results = st.session_state.get("ai_results")
+
+    if ai_results is not None:
+
+        ml_results = ai_results["ml"]
+        physics_results = ai_results["physics"]
+
+        st.divider()
+
+        st.subheader("04 / Prediction Results")
+
+        c1, c2, c3 = st.columns(3)
+
+        c1.metric(
+            "ML Max Displacement",
+            f'{ml_results["max_displacement"]:.4f} m'
+        )
+
+        c2.metric(
+            "ML Max Drift Ratio",
+            f'{ml_results["max_drift_ratio"] * 100:.3f} %'
+        )
+
+        c3.metric(
+            "ML Max Base Shear",
+            f'{ml_results["max_base_shear"] / 1000:.2f} kN'
+        )
+
+        st.divider()
+
+        st.subheader("05 / ML vs Physics Comparison")
+
+        comparison_data = []
+
+        labels = {
+            "max_displacement": "Max Displacement",
+            "max_drift_ratio": "Max Drift Ratio",
+            "max_base_shear": "Max Base Shear"
+        }
+
+        units = {
+            "max_displacement": "m",
+            "max_drift_ratio": "%",
+            "max_base_shear": "kN"
+        }
+
+        for key, label in labels.items():
+
+            ml_value = ml_results[key]
+            physics_value = physics_results[key]
+
+            error = (
+                abs(ml_value - physics_value)
+                / abs(physics_value) * 100
+                if physics_value != 0 else 0.0
+            )
+
+            comparison_data.append({
+                "Parameter": label,
+                "ML Prediction": ml_value,
+                "Physics Solver": physics_value,
+                "Error (%)": error
+            })
+
+        comparison_df = pd.DataFrame(comparison_data)
+
+        display_df = comparison_df.copy()
+
+        display_df["ML Prediction"] = [
+            f'{row["ML Prediction"] * (100 if key == "max_drift_ratio" else 0.001 if key == "max_base_shear" else 1):.4f} {units[key]}'
+            for row, key in zip(comparison_data, labels.keys())
+        ]
+
+        display_df["Physics Solver"] = [
+            f'{row["Physics Solver"] * (100 if key == "max_drift_ratio" else 0.001 if key == "max_base_shear" else 1):.4f} {units[key]}'
+            for row, key in zip(comparison_data, labels.keys())
+        ]
+
+        display_df["Error (%)"] = display_df["Error (%)"].map(
+            lambda x: f"{x:.2f}%"
+        )
+
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.divider()
+
+        st.subheader("06 / Prediction Error")
+
+        st.bar_chart(
+            comparison_df.set_index("Parameter")["Error (%)"],
+            use_container_width=True
+        )
+
+        st.caption(
+            "ML predictions are estimates based on synthetic training "
+            "scenarios. Physics solver results are numerical reference "
+            "results for the same input scenario."
         )
 
