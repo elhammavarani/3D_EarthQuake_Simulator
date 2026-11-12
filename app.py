@@ -1,6 +1,7 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 
 from physics.building import create_building
 from physics.earthquake import generate_ground_motion
@@ -23,6 +24,7 @@ from ml.compare import compare_models
 from ml.feature_importance import get_feature_importance
 
 from ml.evaluate import get_model_comparison, get_target_metrics
+from ml.validation import run_unseen_validation
 
 
 # =========================================================
@@ -1300,21 +1302,108 @@ elif page == "AI Prediction":
 
         st.subheader("07 / Actual vs Predicted")
         predictions_df = pd.read_csv("ml/artifacts/test_predictions.csv")
-        targets = [("Max Displacement", "target_max_displacement"), ("Max Drift Ratio", "target_max_drift_ratio"), ("Max Base Shear", "target_max_base_shear")]
-        cols = st.columns(3)
-        for col, (label, key) in zip(cols, targets):
+
+        targets = [
+            ("Max Displacement", "target_max_displacement", 1.0, "m"),
+            ("Max Drift Ratio", "target_max_drift_ratio", 100.0, "%"),
+            ("Max Base Shear", "target_max_base_shear", 0.001, "kN"),
+        ]
+
+        for col, (label, key, scale, unit) in zip(st.columns(3), targets):
             with col:
-                st.markdown(f"{label}")
-                st.scatter_chart(predictions_df, x=key + "_actual", y=key + "_predicted", use_container_width=True)
+                actual = predictions_df[f"{key}_actual"].to_numpy(dtype=float) * scale
+                predicted = predictions_df[f"{key}_predicted"].to_numpy(dtype=float) * scale
+                low = float(min(np.nanmin(actual), np.nanmin(predicted)))
+                high = float(max(np.nanmax(actual), np.nanmax(predicted)))
+                padding = (high - low) * 0.06 or 0.01
+
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=actual,
+                    y=predicted,
+                    mode="markers",
+                    name="Test samples",
+                    marker=dict(size=7, color="#38BDF8", opacity=0.72,
+                                line=dict(width=0.6, color="#BAE6FD")),
+                    hovertemplate=(
+                        "Actual: %{x:.4g} " + unit +
+                        "<br>Predicted: %{y:.4g} " + unit + "<extra></extra>"
+                    ),
+                ))
+                fig.add_trace(go.Scatter(
+                    x=[low - padding, high + padding],
+                    y=[low - padding, high + padding],
+                    mode="lines",
+                    name="Ideal prediction",
+                    line=dict(color="#FBBF24", width=2, dash="dash"),
+                    hoverinfo="skip",
+                ))
+                fig.update_layout(
+                    title=dict(text=label, x=0.03, font=dict(size=15)),
+                    xaxis_title=f"Actual ({unit})",
+                    yaxis_title=f"Predicted ({unit})",
+                    showlegend=False,
+                )
+                fig.update_xaxes(showgrid=True, gridcolor="#263449", zeroline=False)
+                fig.update_yaxes(showgrid=True, gridcolor="#263449", zeroline=False,
+                                 scaleanchor="x", scaleratio=1)
+                st.plotly_chart(
+                    style_figure(fig, 340),
+                    use_container_width=True,
+                    config={"displayModeBar": False},
+                    key=f"actual_predicted_{key}",
+                )
+
+        st.caption("The dashed line represents perfect agreement (predicted = actual).")
         st.divider()
+
         st.subheader("08 / Residual Analysis")
-        cols = st.columns(3)
-        for col, (label, key) in zip(cols, targets):
+        for col, (label, key, scale, unit) in zip(st.columns(3), targets):
             with col:
-                st.markdown(f"{label} Residuals")
-                st.scatter_chart(predictions_df, x=key + "_predicted", y=key + "_residual", use_container_width=True)
-        st.caption("Residual = Actual - Predicted. Values closer to zero indicate smaller prediction errors.")
+                predicted = predictions_df[f"{key}_predicted"].to_numpy(dtype=float) * scale
+                residual = predictions_df[f"{key}_residual"].to_numpy(dtype=float) * scale
+
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=predicted,
+                    y=residual,
+                    mode="markers",
+                    name="Residuals",
+                    marker=dict(size=7, color="#A78BFA", opacity=0.75,
+                                line=dict(width=0.6, color="#DDD6FE")),
+                    hovertemplate=(
+                        "Predicted: %{x:.4g} " + unit +
+                        "<br>Residual: %{y:.4g} " + unit + "<extra></extra>"
+                    ),
+                ))
+                fig.add_hline(
+                    y=0,
+                    line_color="#FBBF24",
+                    line_width=2,
+                    line_dash="dash",
+                )
+                fig.update_layout(
+                    title=dict(text=f"{label} Residuals", x=0.03,
+                               font=dict(size=15)),
+                    xaxis_title=f"Predicted ({unit})",
+                    yaxis_title=f"Residual ({unit})",
+                    showlegend=False,
+                )
+                fig.update_xaxes(showgrid=True, gridcolor="#263449", zeroline=False)
+                fig.update_yaxes(showgrid=True, gridcolor="#263449", zeroline=False)
+                st.plotly_chart(
+                    style_figure(fig, 340),
+                    use_container_width=True,
+                    config={"displayModeBar": False},
+                    key=f"residuals_{key}",
+                )
+
+        st.caption(
+            "Residual = Actual − Predicted. Points centered around the zero line "
+            "indicate smaller errors; systematic patterns may indicate model bias."
+        )
         st.divider()
+
         st.subheader("09 / Feature Importance")
 
         importance_df = get_feature_importance()
@@ -1372,4 +1461,14 @@ elif page == "AI Prediction":
             "Model evaluation is based on a synthetic dataset "
             "with 2,000 scenarios and an 80/20 train-test split."
         )
+
+        st.divider()
+        st.markdown("### Independent Validation")
+        st.caption("Evaluation on 50 new scenarios generated with a separate seed.")
+        if st.button("Run Independent Validation"):
+            with st.spinner("Validating model on unseen scenarios..."):
+                validation_df = run_unseen_validation(n_samples=50, seed=2026)
+                st.session_state["validation_results"] = validation_df
+        if "validation_results" in st.session_state:
+            st.dataframe(st.session_state["validation_results"].round(4), use_container_width=True, hide_index=True)
 
