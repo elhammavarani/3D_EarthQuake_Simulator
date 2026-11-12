@@ -1,0 +1,14 @@
+[
+    "n_floors",
+    "mass",
+    "stiffness",
+    "damping_ratio",
+    "story_height",
+    "duration",
+    "time_step",
+    "pga",
+    "pga_g",
+    "rms_acceleration",
+    "pgv",
+    "dominant_frequency"
+]
