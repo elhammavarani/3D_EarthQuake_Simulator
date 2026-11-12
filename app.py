@@ -22,6 +22,8 @@ from ml.compare import compare_models
 
 from ml.feature_importance import get_feature_importance
 
+from ml.evaluate import get_model_comparison, get_target_metrics
+
 
 # =========================================================
 # PAGE CONFIGURATION
@@ -1318,5 +1320,39 @@ elif page == "AI Prediction":
         st.caption(
             "Feature importance represents the relative contribution "
             "of each input feature to the Extra Trees model."
+        )
+
+        st.divider()
+
+        st.subheader("08 / Model Evaluation")
+
+        st.markdown("### Model Performance Comparison")
+
+        model_df = get_model_comparison()
+
+        st.bar_chart(
+            model_df.set_index("Model")["Mean R2"],
+            use_container_width=True
+        )
+
+        st.dataframe(
+            model_df.round(4),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.markdown("### Detailed Target Metrics")
+
+        target_df = get_target_metrics()
+
+        st.dataframe(
+            target_df.round(4),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.caption(
+            "Model evaluation is based on a synthetic dataset "
+            "with 2,000 scenarios and an 80/20 train-test split."
         )
 
